@@ -11,3 +11,9 @@ dependencies = [
 
 [tool.uv.sources]
 snac = { git = "https://github.com/thewh1teagle/snac", rev = "dev" }
+
+[dependency-groups]
+dev = [
+    "pandas>=2.3.3",
+    "scipy>=1.17.0",
+]
