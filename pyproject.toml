@@ -1,0 +1,13 @@
+[project]
+name = "sheen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "snac",
+    "transformers>=4.57.6",
+]
+
+[tool.uv.sources]
+snac = { git = "https://github.com/thewh1teagle/snac", rev = "dev" }
