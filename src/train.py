@@ -62,7 +62,7 @@ def main():
         eval_steps=args.eval_steps,
         eval_strategy="steps",
         save_total_limit=args.save_total_limit,
-        load_best_model_at_end=True,
+        load_best_model_at_end=args.load_best_model_at_end,
         report_to=["tensorboard"],
         seed=args.seed,
     )

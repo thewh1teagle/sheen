@@ -19,7 +19,7 @@ def generate_speech(text, model_path, output_path="output.wav"):
     snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().to(device)
 
     # Generate
-    prompt = f"{text} <audio_start>"
+    prompt = f"{text}<audio_start>"
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
     audio_end_id = tokenizer.convert_tokens_to_ids("<audio_end>")

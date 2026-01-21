@@ -28,6 +28,12 @@ def get_args():
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--save-total-limit", type=int, default=3)
     parser.add_argument(
+        "--no-best",
+        dest="load_best_model_at_end",
+        action="store_false",
+        default=True,
+    )
+    parser.add_argument(
         "--eval-split",
         type=float,
         default=0.05,
@@ -46,7 +52,7 @@ def get_args():
 
     # Logging
     parser.add_argument("--log-steps", type=int, default=10)
-    parser.add_argument("--save-steps", type=int, default=500)
+    parser.add_argument("--save-steps", type=int, default=50)
     parser.add_argument("--eval-steps", type=int, default=500)
 
     return parser.parse_args()
