@@ -35,18 +35,19 @@ def load_and_preprocess_audio(audio_file: Path, target_sr: int = 24000):
 
 
 def encode_audio(audio, model, device):
-    """Encode audio with SNAC and return flattened tokens."""
+    """Encode audio with SNAC and return codes structured by layer."""
     audio_tensor = torch.from_numpy(audio).unsqueeze(0).unsqueeze(0).to(device)
     
     with torch.inference_mode():
         codes = model.encode(audio_tensor)
     
-    # Flatten all code levels into a single list of tokens
-    tokens = []
+    # Keep codes structured by layer (layer1, layer2, layer3)
+    # Each layer is a list of integers representing SNAC codes
+    layer_codes = []
     for code_level in codes:
-        tokens.extend(code_level.squeeze(0).cpu().tolist())
+        layer_codes.append(code_level.squeeze(0).cpu().tolist())
     
-    return tokens
+    return layer_codes
 
 
 def process_entry(row, dataset_dir: Path, model, device):
@@ -61,11 +62,11 @@ def process_entry(row, dataset_dir: Path, model, device):
     
     try:
         audio = load_and_preprocess_audio(audio_file)
-        tokens = encode_audio(audio, model, device)
+        snac_codes = encode_audio(audio, model, device)
         
         return {
             "text": phonemes,
-            "tokens": tokens
+            "snac_codes": snac_codes
         }, None
     except Exception as e:
         return None, f"Error processing {audio_id}: {e}"
