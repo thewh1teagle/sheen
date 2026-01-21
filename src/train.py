@@ -2,26 +2,25 @@
 import random
 
 import torch
-from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, set_seed
+from transformers import Trainer, TrainingArguments, set_seed
 
-from config import get_args
+from config import get_args, MAX_LENGTH
 from data import setup_tokenizer, TTSDataset, TTSDataCollator
+from model import create_model
 
 
 def main():
     args = get_args()
 
     print(f"Dataset: {args.dataset}")
-    print(f"Model: {args.model}")
     print(f"Output: {args.output}")
 
-    # Tokenizer
-    tokenizer = setup_tokenizer(args.model)
+    # Tokenizer (uses pretrained tokenizer from Qwen model)
+    tokenizer = setup_tokenizer(args.tokenizer_model)
     print(f"Vocab size: {len(tokenizer)}")
 
-    # Model
-    model = AutoModelForCausalLM.from_pretrained(args.model)
-    model.resize_token_embeddings(len(tokenizer))
+    # Model (always creates custom model from scratch)
+    model = create_model(vocab_size=len(tokenizer))
 
     if args.grad_checkpoint:
         model.gradient_checkpointing_enable()
@@ -30,7 +29,7 @@ def main():
     set_seed(args.seed)
 
     # Dataset with shuffled train/eval split
-    dataset = TTSDataset(args.dataset, tokenizer, args.max_length)
+    dataset = TTSDataset(args.dataset, tokenizer, MAX_LENGTH)
 
     indices = list(range(len(dataset)))
     random.seed(args.seed)
