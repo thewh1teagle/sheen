@@ -55,4 +55,12 @@ def get_args():
     parser.add_argument("--save-steps", type=int, default=50)
     parser.add_argument("--eval-steps", type=int, default=500)
 
+    # Resume training
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint to resume from",
+    )
+
     return parser.parse_args()

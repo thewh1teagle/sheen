@@ -76,7 +76,7 @@ def main():
         processing_class=tokenizer,
     )
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
 
     # Save final
     trainer.save_model(f"{args.output}/final")
