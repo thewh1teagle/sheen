@@ -4,6 +4,7 @@ import argparse
 # SNAC constants
 SNAC_VOCAB_SIZE = 4096
 SNAC_LAYERS = 3
+SNAC_SAMPLE_RATE = 24000
 SNAC_TOKENS = [f"<snac_l{l}_{c}>" for l in [1, 2, 3] for c in range(SNAC_VOCAB_SIZE)]
 SPECIAL_TOKENS = ["<audio_start>", "<audio_end>"]
 

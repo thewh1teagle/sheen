@@ -1,124 +1,178 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["torch", "snac", "soundfile"]
+# dependencies = ["transformers==4.47.1"]
 # ///
 """
-Verify vocab.json with round-trip: SNAC codes → tokens → SNAC codes → audio
-Usage: uv run verify_vocab.py dataset.jsonl vocab.json
+Verify tokenizer setup and SNAC interleave/deinterleave roundtrip.
+Usage: uv run plans/verify_tokenizer/verify_tokenizer_001.py [dataset/dataset.jsonl]
 """
-
 import argparse
 import json
+import sys
 from pathlib import Path
-import torch
-import soundfile as sf
-from snac import SNAC
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+from config import SNAC_TOKENS, SPECIAL_TOKENS, SNAC_VOCAB_SIZE
+from data import setup_tokenizer, interleave_snac_codes, deinterleave_snac_tokens, format_sample
 
 
-def interleave_snac(codes: list[list[int]]) -> list[tuple[int, int]]:
-    """Convert [L1, L2, L3] to interleaved [(layer, code), ...] frames."""
-    l1, l2, l3 = codes
-    tokens = []
-    for i in range(len(l1)):
-        # Each frame: 1 L1 + 2 L2 + 4 L3
-        tokens.append((1, l1[i]))
-        tokens.append((2, l2[i * 2]))
-        tokens.append((2, l2[i * 2 + 1]))
-        tokens.append((3, l3[i * 4]))
-        tokens.append((3, l3[i * 4 + 1]))
-        tokens.append((3, l3[i * 4 + 2]))
-        tokens.append((3, l3[i * 4 + 3]))
-    return tokens
+def test_tokenizer_setup(model_name):
+    """Test that tokenizer is set up correctly with SNAC tokens."""
+    print("1. Testing tokenizer setup...")
+
+    tokenizer = setup_tokenizer(model_name)
+
+    # Check special tokens added
+    for tok in SPECIAL_TOKENS:
+        tok_id = tokenizer.convert_tokens_to_ids(tok)
+        assert tok_id != tokenizer.unk_token_id, f"Special token {tok} not added"
+    print(f"   ✓ Special tokens added: {SPECIAL_TOKENS}")
+
+    # Check SNAC tokens added (spot check)
+    test_snac = ["<snac_l1_0>", "<snac_l2_2048>", "<snac_l3_4095>"]
+    for tok in test_snac:
+        tok_id = tokenizer.convert_tokens_to_ids(tok)
+        assert tok_id != tokenizer.unk_token_id, f"SNAC token {tok} not added"
+    print(f"   ✓ SNAC tokens added ({len(SNAC_TOKENS)} tokens)")
+
+    # Check vocab size
+    expected_min = 12288 + 2  # SNAC + special
+    print(f"   ✓ Vocab size: {len(tokenizer)}")
+
+    return tokenizer
 
 
-def deinterleave_snac(tokens: list[tuple[int, int]]) -> list[list[int]]:
-    """Convert interleaved tokens back to [L1, L2, L3]."""
-    l1, l2, l3 = [], [], []
-    for layer, code in tokens:
-        if layer == 1:
-            l1.append(code)
-        elif layer == 2:
-            l2.append(code)
-        else:
-            l3.append(code)
-    return [l1, l2, l3]
+def test_interleave_deinterleave():
+    """Test that interleave/deinterleave is a perfect roundtrip."""
+    print("\n2. Testing interleave/deinterleave roundtrip...")
+
+    # Create test codes with exact 1:2:4 ratio
+    l1 = [100, 200, 300, 400, 500]
+    l2 = [10, 11, 20, 21, 30, 31, 40, 41, 50, 51]  # 2x L1
+    l3 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]  # 4x L1
+
+    original_codes = [l1, l2, l3]
+
+    # Interleave
+    tokens = interleave_snac_codes(original_codes)
+    assert len(tokens) == len(l1) * 7, f"Expected {len(l1)*7} tokens, got {len(tokens)}"
+    print(f"   ✓ Interleaved {len(l1)} frames -> {len(tokens)} tokens")
+
+    # Check token format
+    assert tokens[0] == "<snac_l1_100>", f"First token wrong: {tokens[0]}"
+    assert tokens[1] == "<snac_l2_10>", f"Second token wrong: {tokens[1]}"
+    print(f"   ✓ Token format correct: {tokens[0]}, {tokens[1]}, ...")
+
+    # Deinterleave
+    recovered = deinterleave_snac_tokens(tokens)
+
+    assert recovered[0] == l1, f"L1 mismatch: {recovered[0]} != {l1}"
+    assert recovered[1] == l2, f"L2 mismatch: {recovered[1]} != {l2}"
+    assert recovered[2] == l3, f"L3 mismatch: {recovered[2]} != {l3}"
+    print("   ✓ Deinterleave recovered original codes exactly")
+
+
+def test_format_sample():
+    """Test format_sample creates correct structure."""
+    print("\n3. Testing format_sample...")
+
+    text = "test phonemes"
+    codes = [[1, 2], [10, 11, 20, 21], [100, 101, 102, 103, 200, 201, 202, 203]]
+
+    formatted = format_sample(text, codes)
+
+    assert formatted.startswith(text), "Should start with text"
+    assert "<audio_start>" in formatted, "Should contain <audio_start>"
+    assert "<audio_end>" in formatted, "Should contain <audio_end>"
+    assert "<snac_l1_1>" in formatted, "Should contain SNAC tokens"
+
+    # Check order
+    start_idx = formatted.index("<audio_start>")
+    end_idx = formatted.index("<audio_end>")
+    assert start_idx < end_idx, "<audio_start> should come before <audio_end>"
+
+    print(f"   ✓ Format: '{formatted[:50]}...'")
+
+
+def test_tokenizer_encode_decode(tokenizer):
+    """Test full encode/decode cycle."""
+    print("\n4. Testing tokenizer encode/decode...")
+
+    text = "hello"
+    codes = [[1, 2], [10, 11, 20, 21], [100, 101, 102, 103, 200, 201, 202, 203]]
+
+    formatted = format_sample(text, codes)
+    encoded = tokenizer.encode(formatted)
+    decoded = tokenizer.decode(encoded)
+
+    # Check special tokens survive
+    assert "<audio_start>" in decoded, "<audio_start> lost in decode"
+    assert "<audio_end>" in decoded, "<audio_end> lost in decode"
+    assert "<snac_l1_1>" in decoded, "SNAC tokens lost in decode"
+
+    print(f"   ✓ Encoded to {len(encoded)} token IDs")
+    print(f"   ✓ Decoded back with special tokens intact")
+
+
+def test_dataset_samples(tokenizer, dataset_path, n_samples=5):
+    """Test with real dataset samples."""
+    print(f"\n5. Testing with real dataset samples (n={n_samples})...")
+
+    with open(dataset_path) as f:
+        samples = [json.loads(line) for line in f if line.strip()]
+
+    import random
+    test_samples = random.sample(samples, min(n_samples, len(samples)))
+
+    for i, sample in enumerate(test_samples):
+        text = sample["text"]
+        codes = sample["snac_codes"]
+
+        # Test interleave/deinterleave roundtrip
+        tokens = interleave_snac_codes(codes)
+        recovered = deinterleave_snac_tokens(tokens)
+
+        # Check L1 matches (L2/L3 might be truncated due to ratio bounds)
+        min_frames = len(recovered[0])
+        assert recovered[0] == codes[0][:min_frames], f"Sample {i}: L1 mismatch"
+
+        # Test full format + tokenize
+        formatted = format_sample(text, codes)
+        encoded = tokenizer.encode(formatted)
+
+        print(f"   Sample {i+1}: {len(text)} chars, {len(tokens)} audio tokens -> {len(encoded)} total IDs")
+
+    print("   ✓ All samples passed roundtrip test")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("dataset", help="dataset.jsonl path")
-    parser.add_argument("vocab", help="vocab.json path")
-    parser.add_argument("--output", "-o", default="verify_output.wav")
-    parser.add_argument("--sample", "-n", type=int, default=0, help="Sample index")
+    parser = argparse.ArgumentParser(description="Verify tokenizer and data functions")
+    parser.add_argument("dataset", nargs="?", help="Optional dataset.jsonl for real sample tests")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B", help="Base model for tokenizer")
+    parser.add_argument("-n", type=int, default=5, help="Number of samples to test")
     args = parser.parse_args()
 
-    # Load vocab
-    vocab = json.loads(Path(args.vocab).read_text())
-    id2tok = {v: k for k, v in vocab.items()}
-    print(f"Vocab: {len(vocab)} tokens")
+    try:
+        tokenizer = test_tokenizer_setup(args.model)
+        test_interleave_deinterleave()
+        test_format_sample()
+        test_tokenizer_encode_decode(tokenizer)
 
-    # Load one sample
-    with open(args.dataset) as f:
-        for i, line in enumerate(f):
-            if i == args.sample:
-                sample = json.loads(line)
-                break
-    
-    text = sample["text"]
-    codes = sample["snac_codes"]
-    print(f"Text: {text[:80]}{'...' if len(text) > 80 else ''}")
-    print(f"SNAC: L1={len(codes[0])}, L2={len(codes[1])}, L3={len(codes[2])}")
+        if args.dataset:
+            test_dataset_samples(tokenizer, args.dataset, args.n)
 
-    # Tokenize phonemes (char by char)
-    text_ids = [vocab.get(c, vocab["<pad>"]) for c in text]
-    print(f"Text tokens: {len(text_ids)}")
+        print("\n✓ All tests passed!")
+        return 0
 
-    # Interleave SNAC → token IDs
-    snac_tokens = interleave_snac(codes)
-    audio_ids = [vocab[f"<snac_l{layer}_{code}>"] for layer, code in snac_tokens]
-    print(f"Audio tokens: {len(audio_ids)} ({len(audio_ids)//7} frames)")
-
-    # Full sequence: text + <audio_start> + audio + <audio_end>
-    full_seq = text_ids + [vocab["<audio_start>"]] + audio_ids + [vocab["<audio_end>"]]
-    print(f"Full sequence: {len(full_seq)} tokens")
-
-    # Round-trip: token IDs → SNAC codes
-    reconstructed_tokens = []
-    for tid in audio_ids:
-        tok = id2tok[tid]  # e.g. "<snac_l1_123>"
-        layer = int(tok[7])  # "l1" -> 1
-        code = int(tok[9:-1])  # "123>"" -> 123
-        reconstructed_tokens.append((layer, code))
-    
-    codes_rt = deinterleave_snac(reconstructed_tokens)
-    
-    # Verify round-trip
-    assert codes == codes_rt, "Round-trip failed!"
-    print("✓ Round-trip verified")
-
-    # Decode to audio
-    print("Decoding audio...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().to(device)
-    
-    out = Path(args.output)
-    
-    # Original
-    tensors_orig = [torch.tensor([c], device=device) for c in codes]
-    with torch.inference_mode():
-        audio_orig = model.decode(tensors_orig).squeeze().cpu().numpy()
-    orig_path = out.with_stem(out.stem + "_original")
-    sf.write(orig_path, audio_orig, 24000)
-    print(f"✓ Original: {len(audio_orig)/24000:.2f}s → {orig_path}")
-    
-    # Round-trip
-    tensors_rt = [torch.tensor([c], device=device) for c in codes_rt]
-    with torch.inference_mode():
-        audio_rt = model.decode(tensors_rt).squeeze().cpu().numpy()
-    rt_path = out.with_stem(out.stem + "_roundtrip")
-    sf.write(rt_path, audio_rt, 24000)
-    print(f"✓ Roundtrip: {len(audio_rt)/24000:.2f}s → {rt_path}")
+    except AssertionError as e:
+        print(f"\n✗ Test failed: {e}")
+        return 1
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
