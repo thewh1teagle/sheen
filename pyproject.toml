@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "snac",
-    "transformers>=4.57.6",
+    "transformers[torch]>=4.57.6",
 ]
 
 [tool.uv.sources]
@@ -16,4 +16,5 @@ snac = { git = "https://github.com/thewh1teagle/snac", rev = "dev" }
 dev = [
     "pandas>=2.3.3",
     "scipy>=1.17.0",
+    "tensorboard>=2.20.0",
 ]
