@@ -26,6 +26,7 @@ def get_args():
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--warmup-steps", type=int, default=100)
+    parser.add_argument("--save-total-limit", type=int, default=3)
     parser.add_argument(
         "--eval-split",
         type=float,
