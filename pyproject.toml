@@ -16,6 +16,8 @@ snac = { git = "https://github.com/thewh1teagle/snac", rev = "dev" }
 dev = [
     "huggingface-hub>=0.36.0",
     "pandas>=2.3.3",
+    "requests>=2.32.5",
     "scipy>=1.17.0",
     "tensorboard>=2.20.0",
+    "tokenizers>=0.22.2",
 ]

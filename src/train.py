@@ -1,7 +1,7 @@
 """
 Training script for Qwen+SNAC TTS.
 
-uv run src/train.py --dataset dataset/dataset.jsonl --output checkpoints/ --batch-size 4 --fp16 --save-steps 500 --save-total-limit 3
+uv run src/train.py --dataset dataset/dataset.jsonl --output checkpoints/
 """
 import random
 
@@ -9,7 +9,7 @@ import torch
 from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, set_seed
 
 from config import get_args
-from data import setup_tokenizer, TTSDataset, TTSDataCollator
+from data import load_tokenizer, TTSDataset, TTSDataCollator
 
 
 def main():
@@ -20,20 +20,20 @@ def main():
     print(f"Output: {args.output}")
 
     # Tokenizer
-    tokenizer = setup_tokenizer(args.model)
-    print(f"Vocab size: {len(tokenizer)}")
+    tokenizer = load_tokenizer()
+    vocab_size = tokenizer.get_vocab_size()
+    print(f"Vocab size: {vocab_size}")
 
     # Model
     model = AutoModelForCausalLM.from_pretrained(args.model)
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(vocab_size)
 
     if args.grad_checkpoint:
         model.gradient_checkpointing_enable()
 
-    # Set seed for reproducibility
     set_seed(args.seed)
 
-    # Dataset with shuffled train/eval split
+    # Dataset
     dataset = TTSDataset(args.dataset, tokenizer, args.max_length)
 
     indices = list(range(len(dataset)))
@@ -47,10 +47,11 @@ def main():
     train_dataset = torch.utils.data.Subset(dataset, train_indices)
     eval_dataset = torch.utils.data.Subset(dataset, eval_indices)
 
-    print(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)} (split={args.eval_split}, seed={args.seed})")
+    print(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)}")
 
-    # Data collator for batched training with proper padding
-    data_collator = TTSDataCollator(tokenizer=tokenizer)
+    # Collator
+    pad_id = tokenizer.token_to_id("<pad>")
+    data_collator = TTSDataCollator(pad_id=pad_id)
 
     # Training
     training_args = TrainingArguments(
@@ -77,15 +78,14 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=data_collator,
-        processing_class=tokenizer,
     )
 
     trainer.train(resume_from_checkpoint=args.resume)
 
-    # Save final
-    trainer.save_model(f"{args.output}/final")
-    tokenizer.save_pretrained(f"{args.output}/final")
-    print(f"Saved to {args.output}/final")
+    # Save final model
+    final_dir = f"{args.output}/final"
+    trainer.save_model(final_dir)
+    print(f"Saved to {final_dir}")
 
 
 if __name__ == "__main__":
