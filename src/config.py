@@ -26,10 +26,22 @@ def get_args():
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--warmup-steps", type=int, default=100)
+    parser.add_argument(
+        "--eval-split",
+        type=float,
+        default=0.05,
+        help="Fraction of data for evaluation (default: 0.05 = 5%%)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible train/eval split",
+    )
 
     # Hardware
-    parser.add_argument("--fp16", action="store_true", default=True)
-    parser.add_argument("--grad-checkpoint", action="store_true", default=True)
+    parser.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--grad-checkpoint", action=argparse.BooleanOptionalAction, default=True)
 
     # Logging
     parser.add_argument("--log-steps", type=int, default=10)

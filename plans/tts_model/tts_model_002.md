@@ -249,7 +249,7 @@ def main():
         logging_steps=args.log_steps,
         save_steps=args.save_steps,
         eval_steps=args.eval_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         save_total_limit=3,
         load_best_model_at_end=True,
         report_to=["tensorboard"],

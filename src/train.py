@@ -1,9 +1,11 @@
 """Training script for Qwen+SNAC TTS."""
+import random
+
 import torch
-from transformers import AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, set_seed
 
 from config import get_args
-from data import setup_tokenizer, TTSDataset
+from data import setup_tokenizer, TTSDataset, TTSDataCollator
 
 
 def main():
@@ -24,13 +26,27 @@ def main():
     if args.grad_checkpoint:
         model.gradient_checkpointing_enable()
 
-    # Dataset
-    dataset = TTSDataset(args.dataset, tokenizer, args.max_length)
-    split_idx = int(len(dataset) * 0.9)
-    train_dataset = torch.utils.data.Subset(dataset, range(split_idx))
-    eval_dataset = torch.utils.data.Subset(dataset, range(split_idx, len(dataset)))
+    # Set seed for reproducibility
+    set_seed(args.seed)
 
-    print(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)}")
+    # Dataset with shuffled train/eval split
+    dataset = TTSDataset(args.dataset, tokenizer, args.max_length)
+
+    indices = list(range(len(dataset)))
+    random.seed(args.seed)
+    random.shuffle(indices)
+
+    eval_size = int(len(dataset) * args.eval_split)
+    train_indices = indices[eval_size:]
+    eval_indices = indices[:eval_size]
+
+    train_dataset = torch.utils.data.Subset(dataset, train_indices)
+    eval_dataset = torch.utils.data.Subset(dataset, eval_indices)
+
+    print(f"Train: {len(train_dataset)}, Eval: {len(eval_dataset)} (split={args.eval_split}, seed={args.seed})")
+
+    # Data collator for batched training with proper padding
+    data_collator = TTSDataCollator(tokenizer=tokenizer)
 
     # Training
     training_args = TrainingArguments(
@@ -44,10 +60,11 @@ def main():
         logging_steps=args.log_steps,
         save_steps=args.save_steps,
         eval_steps=args.eval_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         save_total_limit=3,
         load_best_model_at_end=True,
         report_to=["tensorboard"],
+        seed=args.seed,
     )
 
     trainer = Trainer(
@@ -55,6 +72,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        data_collator=data_collator,
         tokenizer=tokenizer,
     )
 
