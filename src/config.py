@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument("--output", required=True, help="Output directory")
 
     # Model
-    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B", help="Base model")
+    parser.add_argument("--model", default="Qwen/Qwen3-0.6B", help="Base model")
     parser.add_argument("--max-length", type=int, default=1024, help="Max sequence length")
 
     # Training

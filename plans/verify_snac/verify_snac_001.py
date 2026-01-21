@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["torch==2.5.1", "snac==1.2.1", "soundfile==0.13.1", "transformers==4.47.1"]
+# dependencies = ["torch==2.5.1", "snac==1.2.1", "soundfile==0.13.1", "transformers==4.51.1"]
 # ///
 """
 Verify SNAC decode works with dataset samples and interleave/deinterleave pipeline.

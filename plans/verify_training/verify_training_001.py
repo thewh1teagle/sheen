@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["torch==2.5.1", "transformers==4.47.1"]
+# dependencies = ["torch==2.5.1", "transformers==4.51.1"]
 # ///
 """
 Verify training pipeline: model loading, tokenizer, dataset, forward/backward pass.
@@ -66,7 +66,7 @@ def test_model_loading(model_name, tokenizer):
     if device == "cuda":
         print(f"   ✓ GPU memory: {mem_after:.0f} MB")
 
-    return model, device
+    return model, device, old_vocab
 
 
 def test_dataset_loading(dataset_path, tokenizer, n_samples=3):
@@ -127,7 +127,7 @@ def test_forward_pass(model, tokenizer, dataset, device):
     return loss
 
 
-def test_backward_pass(model, tokenizer, dataset, device):
+def test_backward_pass(model, tokenizer, dataset, device, old_vocab_size):
     """Test backward pass (one training step)."""
     print("\n5. Testing backward pass...")
 
@@ -166,7 +166,6 @@ def test_backward_pass(model, tokenizer, dataset, device):
         print(f"   ✓ GPU memory: {mem_after:.0f} MB (+{mem_after - mem_before:.0f} MB)")
 
     # Check new token embeddings have gradients
-    old_vocab_size = 151936  # Qwen2.5-0.5B default
     new_token_grads = embedding_grad[old_vocab_size:].abs().sum().item()
     print(f"   ✓ New token gradient sum: {new_token_grads:.4f}")
 
@@ -207,16 +206,16 @@ def test_gradient_checkpointing(model, tokenizer, dataset, device):
 def main():
     parser = argparse.ArgumentParser(description="Verify training pipeline")
     parser.add_argument("dataset", help="Path to dataset.jsonl")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B", help="Base model")
+    parser.add_argument("--model", default="Qwen/Qwen3-0.6B", help="Base model")
     parser.add_argument("-n", type=int, default=3, help="Number of samples to test")
     args = parser.parse_args()
 
     try:
         tokenizer = test_tokenizer_setup(args.model)
-        model, device = test_model_loading(args.model, tokenizer)
+        model, device, old_vocab_size = test_model_loading(args.model, tokenizer)
         dataset = test_dataset_loading(args.dataset, tokenizer, args.n)
         test_forward_pass(model, tokenizer, dataset, device)
-        test_backward_pass(model, tokenizer, dataset, device)
+        test_backward_pass(model, tokenizer, dataset, device, old_vocab_size)
         test_gradient_checkpointing(model, tokenizer, dataset, device)
 
         print("\n" + "=" * 50)

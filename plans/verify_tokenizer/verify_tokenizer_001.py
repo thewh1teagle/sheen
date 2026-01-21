@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["transformers==4.47.1"]
+# dependencies = ["transformers==4.51.1"]
 # ///
 """
 Verify tokenizer setup and SNAC interleave/deinterleave roundtrip.
@@ -150,7 +150,7 @@ def test_dataset_samples(tokenizer, dataset_path, n_samples=5):
 def main():
     parser = argparse.ArgumentParser(description="Verify tokenizer and data functions")
     parser.add_argument("dataset", nargs="?", help="Optional dataset.jsonl for real sample tests")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B", help="Base model for tokenizer")
+    parser.add_argument("--model", default="Qwen/Qwen3-0.6B", help="Base model for tokenizer")
     parser.add_argument("-n", type=int, default=5, help="Number of samples to test")
     args = parser.parse_args()
 
