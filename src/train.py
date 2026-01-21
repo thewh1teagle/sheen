@@ -1,4 +1,8 @@
-"""Training script for Qwen+SNAC TTS."""
+"""
+Training script for Qwen+SNAC TTS.
+
+uv run src/train.py --dataset dataset/dataset.jsonl --output checkpoints/ --batch-size 4 --fp16 --save-steps 500 --save-total-limit 3
+"""
 import random
 
 import torch
