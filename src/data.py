@@ -12,7 +12,7 @@ from config import SPECIAL_TOKENS, SNAC_TOKENS
 
 def setup_tokenizer(model_name):
     """Load Qwen tokenizer and add SNAC tokens."""
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
     tokenizer.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
     tokenizer.add_tokens(SNAC_TOKENS)
 

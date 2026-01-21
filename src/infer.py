@@ -14,7 +14,7 @@ def generate_speech(text, model_path, output_path="output.wav"):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load model
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, fix_mistral_regex=True)
     model = AutoModelForCausalLM.from_pretrained(model_path).to(device)
     snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().to(device)
 
