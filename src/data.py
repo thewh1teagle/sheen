@@ -10,9 +10,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from config import SPECIAL_TOKENS, SNAC_TOKENS
 
 
-def setup_tokenizer(model_name):
+def setup_tokenizer(tokenizer_model):
     """Load Qwen tokenizer and add SNAC tokens."""
-    tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_model, fix_mistral_regex=True)
     tokenizer.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
     tokenizer.add_tokens(SNAC_TOKENS)
 

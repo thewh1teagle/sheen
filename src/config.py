@@ -8,6 +8,14 @@ SNAC_SAMPLE_RATE = 24000
 SNAC_TOKENS = [f"<snac_l{l}_{c}>" for l in [1, 2, 3] for c in range(SNAC_VOCAB_SIZE)]
 SPECIAL_TOKENS = ["<audio_start>", "<audio_end>"]
 
+# Model architecture
+HIDDEN_SIZE = 512
+INTERMEDIATE_SIZE = 1536
+NUM_LAYERS = 8
+NUM_HEADS = 4
+NUM_KV_HEADS = 1
+MAX_LENGTH = 2048
+
 
 def get_args():
     parser = argparse.ArgumentParser(description="Train Qwen+SNAC TTS")
@@ -16,9 +24,12 @@ def get_args():
     parser.add_argument("--dataset", required=True, help="Path to dataset.jsonl")
     parser.add_argument("--output", required=True, help="Output directory")
 
-    # Model
-    parser.add_argument("--model", default="Qwen/Qwen3-0.6B", help="Base model")
-    parser.add_argument("--max-length", type=int, default=1024, help="Max sequence length")
+    # Tokenizer
+    parser.add_argument(
+        "--tokenizer-model",
+        default="Qwen/Qwen3-0.6B",
+        help="Pretrained model to load tokenizer from"
+    )
 
     # Training
     parser.add_argument("--epochs", type=int, default=3)
