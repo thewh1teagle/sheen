@@ -51,7 +51,7 @@ def generate_speech(text, model_path, output_path="output.wav"):
     # Decode audio
     codes_tensor = [torch.tensor(c).unsqueeze(0).to(device) for c in codes]
     audio = snac.decode(codes_tensor)
-    audio_np = audio.squeeze().cpu().numpy()
+    audio_np = audio.squeeze().detach().cpu().numpy()
 
     sf.write(output_path, audio_np, 24000)
     print(f"Saved to {output_path}")
