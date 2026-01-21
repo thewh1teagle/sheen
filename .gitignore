@@ -6,3 +6,4 @@ venv/
 *.7z
 dataset/
 *.wav
+checkpoints/
