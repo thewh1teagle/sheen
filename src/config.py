@@ -21,7 +21,7 @@ def get_args():
     parser.add_argument("--max-length", type=int, default=1024, help="Max sequence length")
 
     # Training
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--epochs", type=int, default=999999)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-5)
