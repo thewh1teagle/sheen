@@ -1,83 +1,31 @@
-"""Dataset and SNAC token formatting."""
+"""Dataset and data utilities for TTS training."""
 import json
-from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
 
 import torch
+from tokenizers import Tokenizer
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from config import SPECIAL_TOKENS, SNAC_TOKENS
-
-
-def setup_tokenizer(model_name):
-    """Load Qwen tokenizer and add SNAC tokens."""
-    tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
-    tokenizer.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
-    tokenizer.add_tokens(SNAC_TOKENS)
-
-    # Set pad token for batched training
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    return tokenizer
+TOKENIZER_PATH = Path(__file__).parent / "tokenizer.json"
 
 
-@dataclass
-class TTSDataCollator:
-    """
-    Data collator for TTS training with custom label masking.
-
-    Pads input_ids and attention_mask to the longest sequence in the batch.
-    Labels are padded with -100 (CrossEntropyLoss ignore index) so padded
-    positions don't contribute to loss.
-
-    Note: Truncation should be handled by the dataset, not the collator.
-    """
-
-    tokenizer: PreTrainedTokenizerBase
-    label_pad_token_id: int = -100
-
-    def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-        # Extract labels before padding (tokenizer.pad doesn't handle them)
-        labels = [f.pop("labels") for f in features]
-
-        # Pad input_ids and attention_mask to longest in batch
-        batch = self.tokenizer.pad(features, padding=True, return_tensors="pt")
-
-        # Pad labels with -100 so padding doesn't affect loss
-        max_length = batch["input_ids"].shape[1]
-        padded_labels = []
-        for label in labels:
-            pad_length = max_length - len(label)
-            padded_labels.append(label + [self.label_pad_token_id] * pad_length)
-
-        batch["labels"] = torch.tensor(padded_labels, dtype=torch.long)
-
-        return batch
+def load_tokenizer(path: str | Path = TOKENIZER_PATH) -> Tokenizer:
+    """Load the character-level tokenizer."""
+    return Tokenizer.from_file(str(path))
 
 
-def interleave_snac_codes(snac_codes):
+def interleave_snac_codes(snac_codes: list[list[int]]) -> list[str]:
     """
     Convert SNAC codes to frame-interleaved token strings.
-
     Each frame: 1 L1 + 2 L2 + 4 L3 = 7 tokens
-
-    Args:
-        snac_codes: [layer1_codes, layer2_codes, layer3_codes]
-
-    Returns:
-        List of token strings like ["<snac_l1_123>", "<snac_l2_456>", ...]
     """
     l1, l2, l3 = snac_codes
     tokens = []
 
     for i in range(len(l1)):
-        # Check bounds for L2 and L3
         if i * 2 + 1 >= len(l2) or i * 4 + 3 >= len(l3):
             break
 
-        # Frame: 1 + 2 + 4 = 7 tokens
         tokens.extend([
             f"<snac_l1_{l1[i]}>",
             f"<snac_l2_{l2[i*2]}>",
@@ -91,38 +39,37 @@ def interleave_snac_codes(snac_codes):
     return tokens
 
 
-def format_sample(text, snac_codes):
-    """
-    Format training sample.
+def deinterleave_snac_tokens(tokens: list[str]) -> list[list[int]]:
+    """Convert token strings back to SNAC codes."""
+    l1, l2, l3 = [], [], []
 
-    Format: {text}<audio_start>{audio_tokens}<audio_end>
+    for token in tokens:
+        if not token.startswith("<snac_l"):
+            continue
+        parts = token[1:-1].split("_")
+        layer = int(parts[1][1])
+        code = int(parts[2])
 
-    SNAC tokens are concatenated without spaces since they're discrete tokens
-    added to the vocabulary - no whitespace needed between them.
-    """
-    audio_tokens = interleave_snac_codes(snac_codes)
-    return f"{text}<audio_start>{''.join(audio_tokens)}<audio_end>"
+        if layer == 1:
+            l1.append(code)
+        elif layer == 2:
+            l2.append(code)
+        else:
+            l3.append(code)
+
+    return [l1, l2, l3]
 
 
 class TTSDataset(Dataset):
-    """
-    Dataset for TTS training.
-
-    Creates samples where the model learns to predict audio tokens given text.
-    Text tokens are masked from the loss computation - only audio token
-    predictions contribute to training.
-    """
+    """Dataset for TTS training."""
 
     LABEL_IGNORE_INDEX = -100
 
-    def __init__(self, path, tokenizer, max_length=1024):
+    def __init__(self, path: str, tokenizer: Tokenizer, max_length: int = 1024):
         self.tokenizer = tokenizer
         self.max_length = max_length
-
-        # Cache special token IDs for efficient label creation
-        self.audio_start_id = tokenizer.convert_tokens_to_ids("<audio_start>")
-        if self.audio_start_id is None:
-            raise ValueError("Tokenizer missing <audio_start> token. Run setup_tokenizer() first.")
+        self.audio_start_id = tokenizer.token_to_id("<audio_start>")
+        self.pad_id = tokenizer.token_to_id("<pad>")
 
         with open(path) as f:
             self.samples = [json.loads(line) for line in f if line.strip()]
@@ -134,78 +81,62 @@ class TTSDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
-        text = format_sample(sample["text"], sample["snac_codes"])
+        text = sample["text"]
+        audio_tokens = interleave_snac_codes(sample["snac_codes"])
 
-        encoded = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors=None,
-        )
+        # Format: {text}<audio_start>{audio_tokens}<audio_end>
+        full_text = f"{text}<audio_start>{''.join(audio_tokens)}<audio_end>"
 
-        input_ids = encoded["input_ids"]
-        encoded["labels"] = self._create_labels(input_ids)
+        # Encode
+        encoded = self.tokenizer.encode(full_text)
+        input_ids = encoded.ids
 
-        return encoded
+        # Truncate if needed
+        if len(input_ids) > self.max_length:
+            input_ids = input_ids[:self.max_length]
 
-    def _create_labels(self, input_ids):
-        """
-        Create labels that only compute loss on audio token predictions.
+        # Create labels (mask text, keep audio)
+        labels = self._create_labels(input_ids)
 
-        In causal LM, at position i the model predicts token i+1. We want:
-        - NO loss for predicting text tokens (irrelevant to TTS task)
-        - NO loss for predicting <audio_start> (it's a fixed delimiter)
-        - Loss for predicting audio tokens and <audio_end>
+        return {
+            "input_ids": input_ids,
+            "attention_mask": [1] * len(input_ids),
+            "labels": labels,
+        }
 
-        This is achieved by setting labels to -100 (ignore index) for all
-        positions where we don't want loss computed.
-
-        Args:
-            input_ids: Token IDs in format [text..., <audio_start>, audio..., <audio_end>]
-
-        Returns:
-            Labels with text positions masked, audio positions preserved.
-        """
+    def _create_labels(self, input_ids: list[int]) -> list[int]:
+        """Mask text tokens, keep audio tokens for loss."""
         try:
             audio_start_pos = input_ids.index(self.audio_start_id)
         except ValueError:
-            # <audio_start> not found - likely truncated. Mask entire sequence.
             return [self.LABEL_IGNORE_INDEX] * len(input_ids)
 
-        # Mask: text tokens + <audio_start>
-        # Keep: audio tokens + <audio_end>
         labels = [self.LABEL_IGNORE_INDEX] * (audio_start_pos + 1)
         labels += input_ids[audio_start_pos + 1:]
-
         return labels
 
 
-def deinterleave_snac_tokens(tokens):
-    """
-    Convert token strings back to SNAC codes.
+class TTSDataCollator:
+    """Collator that pads batches and handles labels."""
 
-    Args:
-        tokens: List of token strings like ["<snac_l1_123>", ...]
+    def __init__(self, pad_id: int):
+        self.pad_id = pad_id
 
-    Returns:
-        [layer1_codes, layer2_codes, layer3_codes]
-    """
-    l1, l2, l3 = [], [], []
+    def __call__(self, features: list[dict]) -> dict[str, torch.Tensor]:
+        max_len = max(len(f["input_ids"]) for f in features)
 
-    for token in tokens:
-        if not token.startswith("<snac_l"):
-            continue
+        input_ids = []
+        attention_mask = []
+        labels = []
 
-        # Parse "<snac_l1_123>" -> layer=1, code=123
-        parts = token[1:-1].split("_")  # Remove < > and split
-        layer = int(parts[1][1])  # "l1" -> 1
-        code = int(parts[2])
+        for f in features:
+            pad_len = max_len - len(f["input_ids"])
+            input_ids.append(f["input_ids"] + [self.pad_id] * pad_len)
+            attention_mask.append(f["attention_mask"] + [0] * pad_len)
+            labels.append(f["labels"] + [-100] * pad_len)
 
-        if layer == 1:
-            l1.append(code)
-        elif layer == 2:
-            l2.append(code)
-        else:
-            l3.append(code)
-
-    return [l1, l2, l3]
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+        }
