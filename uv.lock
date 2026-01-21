@@ -1053,6 +1053,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "huggingface-hub" },
     { name = "pandas" },
     { name = "scipy" },
     { name = "tensorboard" },
@@ -1066,6 +1067,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "huggingface-hub", specifier = ">=0.36.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "tensorboard", specifier = ">=2.20.0" },
