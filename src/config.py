@@ -6,7 +6,12 @@ SNAC_VOCAB_SIZE = 4096
 SNAC_LAYERS = 3
 SNAC_SAMPLE_RATE = 24000
 SNAC_TOKENS = [f"<snac_l{l}_{c}>" for l in [1, 2, 3] for c in range(SNAC_VOCAB_SIZE)]
-SPECIAL_TOKENS = ["<audio_start>", "<audio_end>"]
+SPECIAL_TOKENS = ["<audio_start>", "<audio_end>", "<audio_mask>"]
+
+# Delay pattern defaults (in frames)
+DEFAULT_DELAY_L1 = 0
+DEFAULT_DELAY_L2 = 1
+DEFAULT_DELAY_L3 = 2
 
 
 def get_args():
