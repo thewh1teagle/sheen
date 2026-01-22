@@ -6,7 +6,10 @@ import torch
 from tokenizers import Tokenizer
 from torch.utils.data import Dataset
 
+from config import DEFAULT_DELAY_L1, DEFAULT_DELAY_L2, DEFAULT_DELAY_L3
+
 TOKENIZER_PATH = Path(__file__).parent / "tokenizer.json"
+MASK_TOKEN = "<audio_mask>"
 
 
 def load_tokenizer(path: str | Path = TOKENIZER_PATH) -> Tokenizer:
@@ -39,8 +42,69 @@ def interleave_snac_codes(snac_codes: list[list[int]]) -> list[str]:
     return tokens
 
 
+def interleave_snac_codes_with_delay(
+    snac_codes: list[list[int]],
+    delay_l1: int = DEFAULT_DELAY_L1,
+    delay_l2: int = DEFAULT_DELAY_L2,
+    delay_l3: int = DEFAULT_DELAY_L3,
+) -> tuple[list[str], list[str]]:
+    """
+    Convert SNAC codes to frame-interleaved tokens with delay pattern.
+
+    The delay pattern staggers codebook visibility during training:
+    - L1 sees current frame (delay=0 by default)
+    - L2 sees previous frame (delay=1 by default)
+    - L3 sees two frames back (delay=2 by default)
+
+    This prevents the model from "cheating" by copying adjacent codebook
+    values and forces it to learn the actual acoustic structure.
+
+    Returns:
+        input_tokens: Delayed sequence (model input during forward pass)
+        label_tokens: Original sequence (prediction targets for loss)
+    """
+    l1, l2, l3 = snac_codes
+    input_tokens = []
+    label_tokens = []
+
+    num_frames = len(l1)
+    for i in range(num_frames):
+        if i * 2 + 1 >= len(l2) or i * 4 + 3 >= len(l3):
+            break
+
+        # L1 tokens
+        l1_delayed_frame = i - delay_l1
+        if l1_delayed_frame >= 0:
+            input_tokens.append(f"<snac_l1_{l1[l1_delayed_frame]}>")
+        else:
+            input_tokens.append(MASK_TOKEN)
+        label_tokens.append(f"<snac_l1_{l1[i]}>")
+
+        # L2 tokens (2 per frame)
+        l2_delayed_frame = i - delay_l2
+        for j in range(2):
+            l2_idx = l2_delayed_frame * 2 + j
+            if l2_delayed_frame >= 0 and l2_idx < len(l2):
+                input_tokens.append(f"<snac_l2_{l2[l2_idx]}>")
+            else:
+                input_tokens.append(MASK_TOKEN)
+            label_tokens.append(f"<snac_l2_{l2[i * 2 + j]}>")
+
+        # L3 tokens (4 per frame)
+        l3_delayed_frame = i - delay_l3
+        for j in range(4):
+            l3_idx = l3_delayed_frame * 4 + j
+            if l3_delayed_frame >= 0 and l3_idx < len(l3):
+                input_tokens.append(f"<snac_l3_{l3[l3_idx]}>")
+            else:
+                input_tokens.append(MASK_TOKEN)
+            label_tokens.append(f"<snac_l3_{l3[i * 4 + j]}>")
+
+    return input_tokens, label_tokens
+
+
 def deinterleave_snac_tokens(tokens: list[str]) -> list[list[int]]:
-    """Convert token strings back to SNAC codes."""
+    """Convert token strings back to SNAC codes. Ignores mask tokens."""
     l1, l2, l3 = [], [], []
 
     for token in tokens:
@@ -61,14 +125,16 @@ def deinterleave_snac_tokens(tokens: list[str]) -> list[list[int]]:
 
 
 class TTSDataset(Dataset):
-    """Dataset for TTS training."""
+    """Dataset for TTS training with delay pattern."""
 
     LABEL_IGNORE_INDEX = -100
 
     def __init__(self, path: str, tokenizer: Tokenizer, max_length: int = 1024):
         self.tokenizer = tokenizer
         self.max_length = max_length
+
         self.audio_start_id = tokenizer.token_to_id("<audio_start>")
+        self.audio_end_id = tokenizer.token_to_id("<audio_end>")
         self.pad_id = tokenizer.token_to_id("<pad>")
 
         with open(path) as f:
@@ -82,21 +148,24 @@ class TTSDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
         text = sample["text"]
-        audio_tokens = interleave_snac_codes(sample["snac_codes"])
+        snac_codes = sample["snac_codes"]
 
-        # Format: {text}<audio_start>{audio_tokens}<audio_end>
-        full_text = f"{text}<audio_start>{''.join(audio_tokens)}<audio_end>"
+        input_tokens, label_tokens = interleave_snac_codes_with_delay(snac_codes)
 
-        # Encode
-        encoded = self.tokenizer.encode(full_text)
-        input_ids = encoded.ids
+        input_text = f"{text}<audio_start>{''.join(input_tokens)}<audio_end>"
+        label_text = f"{text}<audio_start>{''.join(label_tokens)}<audio_end>"
 
-        # Truncate if needed
+        input_encoded = self.tokenizer.encode(input_text)
+        label_encoded = self.tokenizer.encode(label_text)
+
+        input_ids = input_encoded.ids
+        label_ids = label_encoded.ids
+
         if len(input_ids) > self.max_length:
-            input_ids = input_ids[:self.max_length]
+            input_ids = input_ids[: self.max_length]
+            label_ids = label_ids[: self.max_length]
 
-        # Create labels (mask text, keep audio)
-        labels = self._create_labels(input_ids)
+        labels = self._create_labels(label_ids)
 
         return {
             "input_ids": input_ids,
@@ -104,15 +173,15 @@ class TTSDataset(Dataset):
             "labels": labels,
         }
 
-    def _create_labels(self, input_ids: list[int]) -> list[int]:
-        """Mask text tokens, keep audio tokens for loss."""
+    def _create_labels(self, label_ids: list[int]) -> list[int]:
+        """Mask text tokens, keep original audio tokens for loss."""
         try:
-            audio_start_pos = input_ids.index(self.audio_start_id)
+            audio_start_pos = label_ids.index(self.audio_start_id)
         except ValueError:
-            return [self.LABEL_IGNORE_INDEX] * len(input_ids)
+            return [self.LABEL_IGNORE_INDEX] * len(label_ids)
 
         labels = [self.LABEL_IGNORE_INDEX] * (audio_start_pos + 1)
-        labels += input_ids[audio_start_pos + 1:]
+        labels += label_ids[audio_start_pos + 1 :]
         return labels
 
 
